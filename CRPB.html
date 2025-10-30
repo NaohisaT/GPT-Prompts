@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prompt Hub — Tab Merge SPA</title>
+<style>
+  :root { --bg:#0b0d10; --fg:#e6e8eb; --muted:#9aa4b2; --acc:#377dff; --card:#12151a; --br:#1e232b; }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif;}
+  .wrap{display:grid;grid-template-rows:auto 1fr auto;min-height:100vh}
+  header{display:flex;gap:.75rem;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--br);background:var(--card);position:sticky;top:0}
+  header h1{font-size:14px;margin:0;font-weight:600;color:var(--muted)}
+  .tabs{display:flex;flex-wrap:wrap;gap:.5rem;margin-left:auto}
+  .tab{padding:.35rem .7rem;border:1px solid var(--br);border-radius:999px;background:#0e1116;color:var(--fg);cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--acc);border-color:var(--acc);color:white}
+  main{display:grid;grid-template-columns:1.1fr .9fr;gap:1rem;padding:1rem;align-items:start}
+  .card{background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+  .field{display:flex;flex-direction:column;gap:.25rem}
+  .field label{font-size:12px;color:var(--muted)}
+  .field input,.field textarea,.field select{background:#0e1116;border:1px solid var(--br);color:var(--fg);padding:.55rem .6rem;border-radius:8px}
+  textarea{min-height:120px;resize:vertical}
+  .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.5rem 0}
+  .btn{padding:.5rem .8rem;border-radius:8px;border:1px solid var(--br);background:#121722;color:var(--fg);cursor:pointer}
+  .btn.primary{background:var(--acc);border-color:var(--acc);color:white}
+  .muted{color:var(--muted)}
+  pre{white-space:pre-wrap;word-break:break-word;background:#0e1116;border:1px solid var(--br);padding:1rem;border-radius:8px;min-height:180px}
+  footer{padding:.75rem 1rem;border-top:1px solid var(--br);color:var(--muted)}
+  .badge{font-size:12px;padding:.2rem .5rem;border:1px solid var(--br);border-radius:999px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Prompt Hub / Tab Merge</h1>
+    <div class="tabs" id="tabs"></div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="row">
+        <div class="badge" id="tplId">-</div>
+        <div class="muted" id="desc">タブの入力を埋めると右側に統合出力を生成</div>
+      </div>
+      <div class="fields" id="fields"></div>
+      <div class="row">
+        <button class="btn" id="clear">クリア</button>
+        <button class="btn" id="save">入力を保存</button>
+        <button class="btn" id="load">保存を読込</button>
+        <span class="muted">ローカル保存のみ</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <strong>統合出力（B1相当）</strong>
+        <span class="muted" id="count">0 chars</span>
+      </div>
+      <pre id="out"></pre>
+      <div class="row">
+        <button class="btn primary" id="copy">コピー</button>
+        <button class="btn" id="download">TXT保存</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    仕様：空欄は自動スキップ。順序通りにマージ。定型テキストは「text」要素で挿入可。
+  </footer>
+</div>
+
+<script>
+/**
+ * 設計方針：
+ * - シート＝テンプレート。フォーム定義と「mergeSpec」で結合ルールを宣言。
+ * - mergeSpecは上から順に処理。空欄はスキップ。textはそのまま挿入。
+ * - 区切りは part.sep を使用（未指定なら "\n"）。文頭や文末の余分な改行は整形。
+ * - Excel関数は使わない。今回は「単純マージ」のみ。
+ * - 追加のタブは CONFIG に追記するだけで動的に反映。
+ */
+const CONFIG = [
+  {
+    id: "CR依頼",
+    title: "１：CR依頼",
+    desc: "CR依頼で使う素材を単純結合",
+    fields: [
+      { key:"顧客名", label:"顧客名", type:"text", placeholder:"例）○○病院" },
+      { key:"期限",   label:"期限",   type:"text", placeholder:"例）2025-11-05" },
+      { key:"担当",   label:"担当",   type:"text", placeholder:"例）高山" },
+      { key:"背景",   label:"背景・目的", type:"textarea", placeholder:"背景・課題など" },
+      { key:"要望",   label:"依頼内容", type:"textarea", placeholder:"やってほしいこと" },
+      { key:"補足",   label:"補足",   type:"textarea", placeholder:"任意" }
+    ],
+    mergeSpec: [
+      { type:"text", value:"【CR依頼】" },
+      { type:"field", key:"顧客名", prefix:"顧客：", sep:"\n" },
+      { type:"field", key:"期限",   prefix:"期限：", sep:"\n" },
+      { type:"field", key:"担当",   prefix:"担当：", sep:"\n" },
+      { type:"field", key:"背景",   prefix:"背景：", sep:"\n\n" },
+      { type:"field", key:"要望",   prefix:"依頼：", sep:"\n\n" },
+      { type:"field", key:"補足",   prefix:"補足：", sep:"\n" }
+    ]
+  },
+  {
+    id: "CRコメント",
+    title: "３：CRコメント",
+    desc: "点検コメントを素材から結合",
+    fields: [
+      { key:"総評",   label:"総評",   type:"textarea" },
+      { key:"強み",   label:"強み",   type:"textarea" },
+      { key:"改善",   label:"改善点", type:"textarea" },
+      { key:"注意",   label:"注意喚起", type:"textarea" }
+    ],
+    mergeSpec: [
+      { type:"text", value:"【CRコメント】" },
+      { type:"field", key:"総評", prefix:"総評：", sep:"\n\n" },
+      { type:"field", key:"強み", prefix:"強み：", sep:"\n\n" },
+      { type:"field", key:"改善", prefix:"改善：", sep:"\n\n" },
+      { type:"field", key:"注意", prefix:"注意：", sep:"\n" }
+    ]
+  },
+  // 以降、他タブを同様に追記すればよい
+];
+
+// --- 状態 ---
+let current = CONFIG[0].id;
+const state = {}; // タブ別に { [tabId]: { key: value } }
+
+// --- UI初期化 ---
+const $tabs = document.getElementById('tabs');
+const $fields = document.getElementById('fields');
+const $out = document.getElementById('out');
+const $count = document.getElementById('count');
+const $tplId = document.getElementById('tplId');
+const $desc = document.getElementById('desc');
+
+function renderTabs(){
+  $tabs.innerHTML = "";
+  CONFIG.forEach(t=>{
+    const b = document.createElement('button');
+    b.className = 'tab';
+    b.textContent = t.title;
+    b.setAttribute('aria-selected', t.id===current ? 'true' : 'false');
+    b.onclick = ()=>{ current = t.id; renderForm(); renderOutput(); renderTabs(); };
+    $tabs.appendChild(b);
+  });
+}
+
+function renderForm(){
+  const tpl = CONFIG.find(t=>t.id===current);
+  $tplId.textContent = tpl.title;
+  $desc.textContent = tpl.desc || '';
+  $fields.innerHTML = "";
+
+  const values = state[current] || {};
+  tpl.fields.forEach(f=>{
+    const wrap = document.createElement('div'); wrap.className='field';
+    const lab = document.createElement('label'); lab.textContent = f.label;
+    let input;
+    if(f.type === 'textarea'){
+      input = document.createElement('textarea');
+    } else if (f.type === 'select'){
+      input = document.createElement('select');
+      (f.options||[]).forEach(opt=>{
+        const o = document.createElement('option'); o.value=opt.value; o.textContent=opt.label||opt.value;
+        input.appendChild(o);
+      });
+    } else {
+      input = document.createElement('input'); input.type = f.type || 'text';
+    }
+    input.placeholder = f.placeholder || '';
+    input.value = values[f.key] ?? '';
+    input.oninput = e => { (state[current] ||= {}); state[current][f.key] = e.target.value; renderOutput(); };
+    wrap.appendChild(lab); wrap.appendChild(input);
+    $fields.appendChild(wrap);
+  });
+}
+
+function mergeText(tpl, values){
+  const parts = [];
+  tpl.mergeSpec.forEach(p=>{
+    if(p.type === 'text'){
+      if(p.value && String(p.value).trim() !== "") parts.push(String(p.value));
+    } else if(p.type === 'field'){
+      const v = values[p.key];
+      if(v && String(v).trim() !== ""){
+        const prefix = p.prefix || "";
+        const suffix = p.suffix || "";
+        parts.push(prefix + v + suffix);
+      }
+    }
+    // sep は出力時に挿入。未指定は "\n"
+    const lastIdx = parts.length-1;
+    if(lastIdx >= 0){
+      const sep = p.sep ?? "\n";
+      // 最後の要素に区切りマークとして埋める（後で整形）
+      parts[lastIdx] = parts[lastIdx] + "␞SEP:" + btoa(unescape(encodeURIComponent(sep)));
+    }
+  });
+
+  // 区切り展開と整形
+  let out = parts.map(s=>{
+    const m = s.match(/␞SEP:(.*)$/);
+    const base = s.replace(/␞SEP:.*$/,'');
+    const sep = m ? decodeURIComponent(escape(atob(m[1]))) : "\n";
+    return base + sep;
+  }).join("");
+  out = out.replace(/\n{3,}/g, "\n\n").trim(); // 連続改行を整形
+  return out;
+}
+
+function renderOutput(){
+  const tpl = CONFIG.find(t=>t.id===current);
+  const values = state[current] || {};
+  const text = mergeText(tpl, values);
+  $out.textContent = text;
+  $count.textContent = `${text.length} chars`;
+}
+
+// --- 操作 ---
+document.getElementById('copy').onclick = async ()=>{
+  await navigator.clipboard.writeText($out.textContent || "");
+};
+
+document.getElementById('download').onclick = ()=>{
+  const name = CONFIG.find(t=>t.id===current).title.replace(/[^\w\u3040-\u30ff\u3400-\uffff-]+/g,'_');
+  const blob = new Blob([$out.textContent||""], {type:"text/plain;charset=utf-8"});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${name}.txt`; a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+document.getElementById('clear').onclick = ()=>{
+  state[current] = {};
+  renderForm(); renderOutput();
+};
+
+document.getElementById('save').onclick = ()=>{
+  localStorage.setItem(`phub:${current}`, JSON.stringify(state[current]||{}));
+};
+
+document.getElementById('load').onclick = ()=>{
+  const data = localStorage.getItem(`phub:${current}`);
+  if(data){ state[current] = JSON.parse(data); renderForm(); renderOutput(); }
+};
+
+// --- 起動 ---
+renderTabs(); renderForm(); renderOutput();
+</script>
+</body>
+</html>
