@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Prompt Hub — Tab Merge SPA</title>
+<title>Prompt Hub — Tab Merge + Templates</title>
 <style>
   :root { --bg:#0b0d10; --fg:#e6e8eb; --muted:#9aa4b2; --acc:#377dff; --card:#12151a; --br:#1e232b; }
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif;}
@@ -13,6 +13,7 @@
   .tabs{display:flex;flex-wrap:wrap;gap:.5rem;margin-left:auto}
   .tab{padding:.35rem .7rem;border:1px solid var(--br);border-radius:999px;background:#0e1116;color:var(--fg);cursor:pointer}
   .tab[aria-selected="true"]{background:var(--acc);border-color:var(--acc);color:white}
+  .iconbtn{padding:.4rem .6rem;border:1px solid var(--br);border-radius:8px;background:#0e1116;color:var(--fg);cursor:pointer}
   main{display:grid;grid-template-columns:1.1fr .9fr;gap:1rem;padding:1rem;align-items:start}
   .card{background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem}
   .fields{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
@@ -27,6 +28,12 @@
   pre{white-space:pre-wrap;word-break:break-word;background:#0e1116;border:1px solid var(--br);padding:1rem;border-radius:8px;min-height:180px}
   footer{padding:.75rem 1rem;border-top:1px solid var(--br);color:var(--muted)}
   .badge{font-size:12px;padding:.2rem .5rem;border:1px solid var(--br);border-radius:999px}
+  /* modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}
+  .modal.show{display:flex}
+  .modal .panel{width:min(960px,95vw);max-height:90vh;overflow:auto;background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
 </style>
 </head>
 <body>
@@ -34,13 +41,14 @@
   <header>
     <h1>Prompt Hub / Tab Merge</h1>
     <div class="tabs" id="tabs"></div>
+    <button class="iconbtn" id="openSettings" title="設定">設定</button>
   </header>
 
   <main>
     <section class="card">
       <div class="row">
         <div class="badge" id="tplId">-</div>
-        <div class="muted" id="desc">タブの入力を埋めると右側に統合出力を生成</div>
+        <div class="muted" id="desc">入力 → 右側で統合出力。テンプレは設定で編集。</div>
       </div>
       <div class="fields" id="fields"></div>
       <div class="row">
@@ -52,9 +60,20 @@
     </section>
 
     <section class="card">
-      <div class="row">
-        <strong>統合出力（B1相当）</strong>
-        <span class="muted" id="count">0 chars</span>
+      <div class="row" style="justify-content:space-between;width:100%">
+        <div class="row">
+          <strong>統合出力（B1相当）</strong>
+          <span class="muted" id="count">0 chars</span>
+        </div>
+        <div class="row">
+          <label class="muted">テンプレ：
+            <select id="tplSelect">
+              <option value="merge">単純マージ</option>
+              <option value="email">メールテンプレート</option>
+              <option value="calendar">カレンダーテンプレート</option>
+            </select>
+          </label>
+        </div>
       </div>
       <pre id="out"></pre>
       <div class="row">
@@ -65,75 +84,346 @@
   </main>
 
   <footer>
-    仕様：空欄は自動スキップ。順序通りにマージ。定型テキストは「text」要素で挿入可。
+    仕様：空欄は自動スキップ。順序通りにマージ。テンプレ中の {{フィールドキー}} は置換される。
   </footer>
 </div>
 
+<!-- 設定モーダル -->
+<div class="modal" id="settings">
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <strong>設定 / テンプレート編集</strong>
+      <button class="iconbtn" id="closeSettings">閉じる</button>
+    </div>
+
+    <div class="row">
+      <label>タブ：
+        <select id="s_tab"></select>
+      </label>
+      <label>サブ種別：
+        <select id="s_variant"></select>
+      </label>
+      <label>テンプレ種別：
+        <select id="s_kind">
+          <option value="email">メール</option>
+          <option value="calendar">カレンダー</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="muted">テンプレ編集（{{キー}} でフィールド参照。空欄は空文字）</div>
+        <textarea id="s_editor" class="mono" style="width:100%;height:280px"></textarea>
+        <div class="row">
+          <button class="btn primary" id="s_save">保存</button>
+          <button class="btn" id="s_reset">既定値に戻す</button>
+        </div>
+      </div>
+      <div>
+        <div class="muted">プレビュー</div>
+        <pre id="s_preview"></pre>
+      </div>
+    </div>
+
+    <hr style="border-color:var(--br)">
+
+    <div class="row">
+      <button class="btn" id="exportTemplates">テンプレをJSONエクスポート</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <button class="btn" id="importTemplates">JSONをインポート</button>
+      <span class="muted">※ローカルのみ。上書き保存</span>
+    </div>
+  </div>
+</div>
+
 <script>
-/**
- * 設計方針：
- * - シート＝テンプレート。フォーム定義と「mergeSpec」で結合ルールを宣言。
- * - mergeSpecは上から順に処理。空欄はスキップ。textはそのまま挿入。
- * - 区切りは part.sep を使用（未指定なら "\n"）。文頭や文末の余分な改行は整形。
- * - Excel関数は使わない。今回は「単純マージ」のみ。
- * - 追加のタブは CONFIG に追記するだけで動的に反映。
- */
+/* =========================
+ * 1) 定義（4タブ＋variants）
+ * ========================= */
 const CONFIG = [
   {
-    id: "CR依頼",
-    title: "１：CR依頼",
-    desc: "CR依頼で使う素材を単純結合",
-    fields: [
-      { key:"顧客名", label:"顧客名", type:"text", placeholder:"例）○○病院" },
-      { key:"期限",   label:"期限",   type:"text", placeholder:"例）2025-11-05" },
-      { key:"担当",   label:"担当",   type:"text", placeholder:"例）高山" },
-      { key:"背景",   label:"背景・目的", type:"textarea", placeholder:"背景・課題など" },
-      { key:"要望",   label:"依頼内容", type:"textarea", placeholder:"やってほしいこと" },
-      { key:"補足",   label:"補足",   type:"textarea", placeholder:"任意" }
-    ],
-    mergeSpec: [
-      { type:"text", value:"【CR依頼】" },
-      { type:"field", key:"顧客名", prefix:"顧客：", sep:"\n" },
-      { type:"field", key:"期限",   prefix:"期限：", sep:"\n" },
-      { type:"field", key:"担当",   prefix:"担当：", sep:"\n" },
-      { type:"field", key:"背景",   prefix:"背景：", sep:"\n\n" },
-      { type:"field", key:"要望",   prefix:"依頼：", sep:"\n\n" },
-      { type:"field", key:"補足",   prefix:"補足：", sep:"\n" }
+    id:"preinfo", title:"１：事前情報依頼",
+    variants:[
+      {
+        id:"agency", label:"代理店", desc:"代理店向け事前情報依頼",
+        fields:[
+          { key:"宛先", label:"宛先", type:"text" },
+          { key:"案件名", label:"案件名", type:"text" },
+          { key:"必要情報", label:"ご提出事項", type:"textarea" },
+          { key:"期限", label:"期限", type:"text" },
+          { key:"補足", label:"補足", type:"textarea" }
+        ],
+        mergeSpec:[
+          { type:"text", value:"【事前情報依頼／代理店】" },
+          { type:"field", key:"宛先",   prefix:"宛先：", sep:"\n" },
+          { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+          { type:"field", key:"必要情報", prefix:"ご提出事項：", sep:"\n\n" },
+          { type:"field", key:"期限",   prefix:"期限：", sep:"\n" },
+          { type:"field", key:"補足",   prefix:"補足：", sep:"\n" }
+        ],
+        templatesDefault:{
+          email:
+`件名：[事前情報依頼] {{案件名}}
+{{宛先}} 御中
+
+下記の事前情報のご提供をお願いします。
+{{必要情報}}
+
+期限：{{期限}}
+補足：{{補足}}`,
+          calendar:
+`タイトル：[事前情報依頼] {{案件名}}
+本文：
+宛先：{{宛先}}
+依頼事項：{{必要情報}}
+期限：{{期限}}
+補足：{{補足}}`
+        }
+      },
+      {
+        id:"builder", label:"構築店", desc:"構築店向け事前情報依頼",
+        fields:[
+          { key:"宛先", label:"宛先", type:"text" },
+          { key:"案件名", label:"案件名", type:"text" },
+          { key:"必要情報", label:"ご提出事項", type:"textarea" },
+          { key:"注意点", label:"注意点", type:"textarea" },
+          { key:"期限", label:"期限", type:"text" }
+        ],
+        mergeSpec:[
+          { type:"text", value:"【事前情報依頼／構築店】" },
+          { type:"field", key:"宛先",   prefix:"宛先：", sep:"\n" },
+          { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+          { type:"field", key:"必要情報", prefix:"ご提出事項：", sep:"\n\n" },
+          { type:"field", key:"注意点", prefix:"注意点：", sep:"\n\n" },
+          { type:"field", key:"期限",   prefix:"期限：", sep:"\n" }
+        ],
+        templatesDefault:{
+          email:
+`件名：[事前情報依頼/構築店] {{案件名}}
+{{宛先}} 御中
+
+下記の事前情報のご提供をお願いします。
+{{必要情報}}
+
+注意点：
+{{注意点}}
+
+期限：{{期限}}`,
+          calendar:
+`タイトル：[構築店]事前情報依頼 {{案件名}}
+本文：
+宛先：{{宛先}}
+依頼事項：{{必要情報}}
+注意点：{{注意点}}
+期限：{{期限}}`
+        }
+      }
     ]
   },
   {
-    id: "CRコメント",
-    title: "３：CRコメント",
-    desc: "点検コメントを素材から結合",
-    fields: [
-      { key:"総評",   label:"総評",   type:"textarea" },
-      { key:"強み",   label:"強み",   type:"textarea" },
-      { key:"改善",   label:"改善点", type:"textarea" },
-      { key:"注意",   label:"注意喚起", type:"textarea" }
+    id:"prep", title:"２：事前準備",
+    variants:[
+      {
+        id:"cr", label:"CR", desc:"CR事前準備",
+        fields:[
+          { key:"案件名", label:"案件名", type:"text" },
+          { key:"論点", label:"論点", type:"textarea" },
+          { key:"資料", label:"必要資料", type:"textarea" }
+        ],
+        mergeSpec:[
+          { type:"text", value:"【事前準備／CR】" },
+          { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+          { type:"field", key:"論点", prefix:"論点：", sep:"\n\n" },
+          { type:"field", key:"資料", prefix:"資料：", sep:"\n" }
+        ],
+        templatesDefault:{
+          email:
+`件名：[CR事前準備] {{案件名}}
+論点：
+{{論点}}
+
+必要資料：
+{{資料}}`,
+          calendar:
+`タイトル：[CR準備] {{案件名}}
+本文：
+論点：{{論点}}
+資料：{{資料}}`
+        }
+      },
+      {
+        id:"agency", label:"代理店", desc:"代理店事前準備",
+        fields:[
+          { key:"案件名", label:"案件名", type:"text" },
+          { key:"論点", label:"論点", type:"textarea" },
+          { key:"資料", label:"必要資料", type:"textarea" },
+          { key:"役割", label:"当日の役割", type:"textarea" }
+        ],
+        mergeSpec:[
+          { type:"text", value:"【事前準備／代理店】" },
+          { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+          { type:"field", key:"論点", prefix:"論点：", sep:"\n\n" },
+          { type:"field", key:"資料", prefix:"資料：", sep:"\n\n" },
+          { type:"field", key:"役割", prefix:"役割：", sep:"\n" }
+        ],
+        templatesDefault:{
+          email:
+`件名：[事前準備/代理店] {{案件名}}
+論点：
+{{論点}}
+
+必要資料：
+{{資料}}
+
+当日の役割：
+{{役割}}`,
+          calendar:
+`タイトル：[代理店]事前準備 {{案件名}}
+本文：
+論点：{{論点}}
+資料：{{資料}}
+役割：{{役割}}`
+        }
+      },
+      {
+        id:"builder", label:"構築店", desc:"構築店事前準備",
+        fields:[
+          { key:"案件名", label:"案件名", type:"text" },
+          { key:"論点", label:"論点", type:"textarea" },
+          { key:"資料", label:"必要資料", type:"textarea" },
+          { key:"段取り", label:"段取り", type:"textarea" }
+        ],
+        mergeSpec:[
+          { type:"text", value:"【事前準備／構築店】" },
+          { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+          { type:"field", key:"論点", prefix:"論点：", sep:"\n\n" },
+          { type:"field", key:"資料", prefix:"資料：", sep:"\n\n" },
+          { type:"field", key:"段取り", prefix:"段取り：", sep:"\n" }
+        ],
+        templatesDefault:{
+          email:
+`件名：[事前準備/構築店] {{案件名}}
+論点：
+{{論点}}
+
+必要資料：
+{{資料}}
+
+段取り：
+{{段取り}}`,
+          calendar:
+`タイトル：[構築店]事前準備 {{案件名}}
+本文：
+論点：{{論点}}
+資料：{{資料}}
+段取り：{{段取り}}`
+        }
+      }
+    ]
+  },
+  {
+    id:"cr_comment", title:"３：CRコメント",
+    fields:[
+      { key:"総評", label:"総評", type:"textarea" },
+      { key:"強み", label:"強み", type:"textarea" },
+      { key:"改善", label:"改善点", type:"textarea" },
+      { key:"注意", label:"注意喚起", type:"textarea" }
     ],
-    mergeSpec: [
+    mergeSpec:[
       { type:"text", value:"【CRコメント】" },
       { type:"field", key:"総評", prefix:"総評：", sep:"\n\n" },
       { type:"field", key:"強み", prefix:"強み：", sep:"\n\n" },
       { type:"field", key:"改善", prefix:"改善：", sep:"\n\n" },
       { type:"field", key:"注意", prefix:"注意：", sep:"\n" }
-    ]
+    ],
+    templatesDefault:{
+      email:
+`件名：[CRコメント]
+総評：
+{{総評}}
+
+強み：
+{{強み}}
+
+改善点：
+{{改善}}
+
+注意喚起：
+{{注意}}`,
+      calendar:
+`タイトル：CRコメント共有
+本文：
+総評：{{総評}}
+強み：{{強み}}
+改善：{{改善}}
+注意：{{注意}}`
+    }
   },
-  // 以降、他タブを同様に追記すればよい
+  {
+    id:"builder_inv", title:"４：構築店Invitation",
+    fields:[
+      { key:"宛先", label:"宛先", type:"text" },
+      { key:"案件名", label:"案件名", type:"text" },
+      { key:"目的", label:"目的", type:"textarea" },
+      { key:"アクション", label:"依頼アクション", type:"textarea" },
+      { key:"日程候補", label:"日程候補", type:"textarea" }
+    ],
+    mergeSpec:[
+      { type:"text", value:"【Invitation（構築店向け）】" },
+      { type:"field", key:"宛先", prefix:"宛先：", sep:"\n" },
+      { type:"field", key:"案件名", prefix:"案件：", sep:"\n" },
+      { type:"field", key:"目的", prefix:"目的：", sep:"\n\n" },
+      { type:"field", key:"アクション", prefix:"お願い：", sep:"\n\n" },
+      { type:"field", key:"日程候補", prefix:"日程候補：", sep:"\n" }
+    ],
+    templatesDefault:{
+      email:
+`件名：[Invitation] {{案件名}}
+{{宛先}} 御中
+
+目的：
+{{目的}}
+
+お願い：
+{{アクション}}
+
+日程候補：
+{{日程候補}}`,
+      calendar:
+`タイトル：[Invitation] {{案件名}}
+本文：
+宛先：{{宛先}}
+目的：{{目的}}
+お願い：{{アクション}}
+日程候補：{{日程候補}}`
+    }
+  }
 ];
 
-// --- 状態 ---
+/* =========================
+ * 2) 状態
+ * ========================= */
 let current = CONFIG[0].id;
-const state = {}; // タブ別に { [tabId]: { key: value } }
+const variantSel = {};     // { [tabId]: variantId }
+const state = {};          // { [key]: { field: value } }  key = tabId or "tab:variant"
+const templates = loadTemplates(); // { [tabId]: { [variantId or _base]: { email, calendar } } }
 
-// --- UI初期化 ---
+/* =========================
+ * 3) DOM参照
+ * ========================= */
 const $tabs = document.getElementById('tabs');
 const $fields = document.getElementById('fields');
 const $out = document.getElementById('out');
 const $count = document.getElementById('count');
 const $tplId = document.getElementById('tplId');
 const $desc = document.getElementById('desc');
+const $tplSelect = document.getElementById('tplSelect');
+const $settings = document.getElementById('settings');
 
+/* =========================
+ * 4) タブ／フォーム描画
+ * ========================= */
 function renderTabs(){
   $tabs.innerHTML = "";
   CONFIG.forEach(t=>{
@@ -146,39 +436,60 @@ function renderTabs(){
   });
 }
 
-function renderForm(){
-  const tpl = CONFIG.find(t=>t.id===current);
-  $tplId.textContent = tpl.title;
-  $desc.textContent = tpl.desc || '';
-  $fields.innerHTML = "";
+function getCurrentDef(){
+  const tab = CONFIG.find(t=>t.id===current);
+  if(tab.variants){
+    const curVar = variantSel[current] || tab.variants[0].id;
+    variantSel[current] = curVar;
+    const variant = tab.variants.find(v=>v.id===curVar);
+    return { tab, variant, fields: variant.fields, mergeSpec: variant.mergeSpec, desc: variant.desc || tab.desc };
+  }
+  return { tab, variant:null, fields: tab.fields, mergeSpec: tab.mergeSpec, desc: tab.desc };
+}
 
-  const values = state[current] || {};
-  tpl.fields.forEach(f=>{
+function renderForm(){
+  const { tab, variant, fields, mergeSpec, desc } = getCurrentDef();
+  $tplId.textContent = tab.title + (variant ? ` / ${variant.label}` : "");
+  $desc.textContent = desc || '';
+
+  $fields.innerHTML = "";
+  // variants セレクタ
+  if(tab.variants){
+    const bar = document.createElement('div'); bar.className='row';
+    const lab = document.createElement('label'); lab.className='muted'; lab.textContent='サブ種別：';
+    const sel = document.createElement('select');
+    tab.variants.forEach(v=>{
+      const o = document.createElement('option'); o.value=v.id; o.textContent=v.label; sel.appendChild(o);
+    });
+    sel.value = variantSel[current];
+    sel.onchange = e => { variantSel[current] = e.target.value; renderForm(); renderOutput(); };
+    bar.appendChild(lab); bar.appendChild(sel); $fields.appendChild(bar);
+  }
+
+  const stateKey = tab.variants ? `${tab.id}:${variantSel[current]}` : tab.id;
+  const values = state[stateKey] || {};
+  fields.forEach(f=>{
     const wrap = document.createElement('div'); wrap.className='field';
     const lab = document.createElement('label'); lab.textContent = f.label;
-    let input;
-    if(f.type === 'textarea'){
-      input = document.createElement('textarea');
-    } else if (f.type === 'select'){
-      input = document.createElement('select');
-      (f.options||[]).forEach(opt=>{
-        const o = document.createElement('option'); o.value=opt.value; o.textContent=opt.label||opt.value;
-        input.appendChild(o);
-      });
-    } else {
-      input = document.createElement('input'); input.type = f.type || 'text';
-    }
+    let input = f.type === 'textarea' ? document.createElement('textarea') : document.createElement('input');
+    if(f.type !== 'textarea') input.type = f.type || 'text';
     input.placeholder = f.placeholder || '';
     input.value = values[f.key] ?? '';
-    input.oninput = e => { (state[current] ||= {}); state[current][f.key] = e.target.value; renderOutput(); };
+    input.oninput = e => { (state[stateKey] ||= {}); state[stateKey][f.key] = e.target.value; renderOutput(); };
     wrap.appendChild(lab); wrap.appendChild(input);
     $fields.appendChild(wrap);
   });
+
+  renderForm._mergeSpec = mergeSpec;
+  renderForm._stateKey = stateKey;
 }
 
-function mergeText(tpl, values){
+/* =========================
+ * 5) 出力生成（マージ／テンプレ）
+ * ========================= */
+function mergeText(mergeSpec, values){
   const parts = [];
-  tpl.mergeSpec.forEach(p=>{
+  mergeSpec.forEach(p=>{
     if(p.type === 'text'){
       if(p.value && String(p.value).trim() !== "") parts.push(String(p.value));
     } else if(p.type === 'field'){
@@ -189,62 +500,202 @@ function mergeText(tpl, values){
         parts.push(prefix + v + suffix);
       }
     }
-    // sep は出力時に挿入。未指定は "\n"
     const lastIdx = parts.length-1;
     if(lastIdx >= 0){
       const sep = p.sep ?? "\n";
-      // 最後の要素に区切りマークとして埋める（後で整形）
       parts[lastIdx] = parts[lastIdx] + "␞SEP:" + btoa(unescape(encodeURIComponent(sep)));
     }
   });
-
-  // 区切り展開と整形
   let out = parts.map(s=>{
     const m = s.match(/␞SEP:(.*)$/);
     const base = s.replace(/␞SEP:.*$/,'');
     const sep = m ? decodeURIComponent(escape(atob(m[1]))) : "\n";
     return base + sep;
   }).join("");
-  out = out.replace(/\n{3,}/g, "\n\n").trim(); // 連続改行を整形
-  return out;
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function fillTemplate(text, values){
+  return text.replace(/\{\{([^}]+)\}\}/g, (_, k)=>{
+    const key = k.trim();
+    return values[key] != null ? String(values[key]) : "";
+  }).replace(/[ \t]+\n/g, "\n").trim();
 }
 
 function renderOutput(){
-  const tpl = CONFIG.find(t=>t.id===current);
-  const values = state[current] || {};
-  const text = mergeText(tpl, values);
+  const { tab, variant, mergeSpec } = getCurrentDef();
+  const sk = renderForm._stateKey || tab.id;
+  const values = state[sk] || {};
+  const mode = $tplSelect.value; // "merge" | "email" | "calendar"
+
+  let text = "";
+  if(mode === "merge"){
+    text = mergeText(mergeSpec, values);
+  }else{
+    const vId = variant ? variant.id : "_base";
+    const tpl = getTemplate(tab.id, vId, mode);
+    text = fillTemplate(tpl, values);
+  }
   $out.textContent = text;
   $count.textContent = `${text.length} chars`;
 }
 
-// --- 操作 ---
-document.getElementById('copy').onclick = async ()=>{
-  await navigator.clipboard.writeText($out.textContent || "");
-};
-
+/* =========================
+ * 6) 入出力操作
+ * ========================= */
+document.getElementById('copy').onclick = async ()=>{ await navigator.clipboard.writeText($out.textContent||""); };
 document.getElementById('download').onclick = ()=>{
-  const name = CONFIG.find(t=>t.id===current).title.replace(/[^\w\u3040-\u30ff\u3400-\uffff-]+/g,'_');
+  const name = document.getElementById('tplId').textContent.replace(/[^\w\u3040-\u30ff\u3400-\uffff-]+/g,'_');
   const blob = new Blob([$out.textContent||""], {type:"text/plain;charset=utf-8"});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${name}.txt`; a.click();
   URL.revokeObjectURL(a.href);
 };
-
-document.getElementById('clear').onclick = ()=>{
-  state[current] = {};
-  renderForm(); renderOutput();
-};
-
-document.getElementById('save').onclick = ()=>{
-  localStorage.setItem(`phub:${current}`, JSON.stringify(state[current]||{}));
-};
-
+document.getElementById('clear').onclick = ()=>{ state[renderForm._stateKey] = {}; renderForm(); renderOutput(); };
+document.getElementById('save').onclick = ()=>{ localStorage.setItem(`phub:${renderForm._stateKey}`, JSON.stringify(state[renderForm._stateKey]||{})); };
 document.getElementById('load').onclick = ()=>{
-  const data = localStorage.getItem(`phub:${current}`);
-  if(data){ state[current] = JSON.parse(data); renderForm(); renderOutput(); }
+  const data = localStorage.getItem(`phub:${renderForm._stateKey}`); if(data){ state[renderForm._stateKey] = JSON.parse(data); renderForm(); renderOutput(); }
+};
+$tplSelect.onchange = renderOutput;
+
+/* =========================
+ * 7) 設定モーダル（テンプレ編集）
+ * ========================= */
+const $openSettings = document.getElementById('openSettings');
+const $closeSettings = document.getElementById('closeSettings');
+const $s_tab = document.getElementById('s_tab');
+const $s_variant = document.getElementById('s_variant');
+const $s_kind = document.getElementById('s_kind');
+const $s_editor = document.getElementById('s_editor');
+const $s_preview = document.getElementById('s_preview');
+const $s_save = document.getElementById('s_save');
+const $s_reset = document.getElementById('s_reset');
+const $export = document.getElementById('exportTemplates');
+const $import = document.getElementById('importTemplates');
+const $file = document.getElementById('importFile');
+
+$openSettings.onclick = ()=>{
+  // タブ選択肢
+  $s_tab.innerHTML = "";
+  CONFIG.forEach(t=>{
+    const o=document.createElement('option'); o.value=t.id; o.textContent=t.title; $s_tab.appendChild(o);
+  });
+  $s_tab.value = current;
+  refreshVariantOptions(); loadEditor();
+  $settings.classList.add('show');
+};
+$closeSettings.onclick = ()=>{ $settings.classList.remove('show'); };
+
+function refreshVariantOptions(){
+  const t = CONFIG.find(x=>x.id===$s_tab.value);
+  $s_variant.innerHTML = "";
+  if(t.variants){
+    t.variants.forEach(v=>{
+      const o=document.createElement('option'); o.value=v.id; o.textContent=v.label; $s_variant.appendChild(o);
+    });
+  }else{
+    const o=document.createElement('option'); o.value="_base"; o.textContent="単独"; $s_variant.appendChild(o);
+  }
+}
+
+$s_tab.onchange = ()=>{ refreshVariantOptions(); loadEditor(); };
+$s_variant.onchange = ()=> loadEditor();
+$s_kind.onchange = ()=> loadEditor();
+
+function getTemplate(tabId, variantId, kind){
+  const t = templates[tabId] && templates[tabId][variantId] && templates[tabId][variantId][kind];
+  if(t) return t;
+  // 既定値
+  const def = getDefaultTemplate(tabId, variantId, kind);
+  return def || "";
+}
+
+function setTemplate(tabId, variantId, kind, text){
+  templates[tabId] ||= {};
+  templates[tabId][variantId] ||= {};
+  templates[tabId][variantId][kind] = text;
+  localStorage.setItem("phub:templates", JSON.stringify(templates));
+}
+
+function getDefaultTemplate(tabId, variantId, kind){
+  const tab = CONFIG.find(t=>t.id===tabId);
+  if(tab.variants){
+    const v = tab.variants.find(x=>x.id===variantId);
+    return v?.templatesDefault?.[kind] || "";
+  }
+  return tab.templatesDefault?.[kind] || "";
+}
+
+function loadEditor(){
+  const tabId = $s_tab.value;
+  const varId = $s_variant.value || "_base";
+  const kind = $s_kind.value;
+  const text = getTemplate(tabId, varId, kind);
+  $s_editor.value = text;
+  // プレビューは現在入力値で置換
+  const sk = (varId==="_base") ? tabId : `${tabId}:${varId}`;
+  const values = state[sk] || {};
+  $s_preview.textContent = fillTemplate(text, values);
+}
+
+$s_editor.oninput = ()=> loadEditor();
+$s_save.onclick = ()=>{
+  setTemplate($s_tab.value, $s_variant.value||"_base", $s_kind.value, $s_editor.value);
+  loadEditor(); renderOutput();
+};
+$s_reset.onclick = ()=>{
+  const d = getDefaultTemplate($s_tab.value, $s_variant.value||"_base", $s_kind.value);
+  setTemplate($s_tab.value, $s_variant.value||"_base", $s_kind.value, d);
+  loadEditor(); renderOutput();
 };
 
-// --- 起動 ---
+// Export / Import
+$export.onclick = ()=>{
+  const blob = new Blob([JSON.stringify(templates, null, 2)], {type:"application/json;charset=utf-8"});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "templates-export.json"; a.click();
+  URL.revokeObjectURL(a.href);
+};
+$import.onclick = ()=> $file.click();
+$file.onchange = ()=>{
+  const f = $file.files[0]; if(!f) return;
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    try{
+      const obj = JSON.parse(fr.result);
+      Object.assign(templates, obj);
+      localStorage.setItem("phub:templates", JSON.stringify(templates));
+      loadEditor(); renderOutput();
+    }catch(e){ alert("JSON読込エラー"); }
+  };
+  fr.readAsText(f, "utf-8");
+};
+
+/* =========================
+ * 8) テンプレ保存ロード
+ * ========================= */
+function loadTemplates(){
+  const saved = localStorage.getItem("phub:templates");
+  if(saved){ try{ return JSON.parse(saved); }catch{} }
+  // 初回はCONFIGの既定値を展開
+  const t = {};
+  CONFIG.forEach(tab=>{
+    if(tab.variants){
+      tab.variants.forEach(v=>{
+        t[tab.id] ||= {};
+        t[tab.id][v.id] = JSON.parse(JSON.stringify(v.templatesDefault||{}));
+      });
+    }else{
+      t[tab.id] = { _base: JSON.parse(JSON.stringify(tab.templatesDefault||{})) };
+    }
+  });
+  localStorage.setItem("phub:templates", JSON.stringify(t));
+  return t;
+}
+
+/* =========================
+ * 9) 起動
+ * ========================= */
 renderTabs(); renderForm(); renderOutput();
+
 </script>
 </body>
 </html>
