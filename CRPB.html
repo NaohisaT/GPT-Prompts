@@ -5,35 +5,38 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Prompt Hub — Tab Merge + Templates</title>
 <style>
-  :root { --bg:#0b0d10; --fg:#e6e8eb; --muted:#9aa4b2; --acc:#377dff; --card:#12151a; --br:#1e232b; }
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif;}
+  :root {
+    --bg:#ffffff;       /* 背景 */
+    --fg:#111827;       /* 文字 */
+    --muted:#6b7280;    /* 補助文字 */
+    --acc:#2563eb;      /* アクセント */
+    --card:#ffffff;     /* カード背景 */
+    --br:#e5e7eb;       /* 罫線 */
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:14px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif;}
   .wrap{display:grid;grid-template-rows:auto 1fr auto;min-height:100vh}
   header{display:flex;gap:.75rem;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--br);background:var(--card);position:sticky;top:0}
   header h1{font-size:14px;margin:0;font-weight:600;color:var(--muted)}
   .tabs{display:flex;flex-wrap:wrap;gap:.5rem;margin-left:auto}
-  .tab{padding:.35rem .7rem;border:1px solid var(--br);border-radius:999px;background:#0e1116;color:var(--fg);cursor:pointer}
-  .tab[aria-selected="true"]{background:var(--acc);border-color:var(--acc);color:white}
-  .iconbtn{padding:.4rem .6rem;border:1px solid var(--br);border-radius:8px;background:#0e1116;color:var(--fg);cursor:pointer}
+  .tab{padding:.35rem .7rem;border:1px solid var(--br);border-radius:999px;background:#f8fafc;color:var(--fg);cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
   main{display:grid;grid-template-columns:1.1fr .9fr;gap:1rem;padding:1rem;align-items:start}
-  .card{background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem}
+  .card{background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem;box-shadow:0 1px 2px rgba(0,0,0,.04)}
   .fields{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
   .field{display:flex;flex-direction:column;gap:.25rem}
   .field label{font-size:12px;color:var(--muted)}
-  .field input,.field textarea,.field select{background:#0e1116;border:1px solid var(--br);color:var(--fg);padding:.55rem .6rem;border-radius:8px}
+  .field input,.field textarea,.field select{
+    background:#ffffff;border:1px solid var(--br);color:var(--fg);padding:.55rem .6rem;border-radius:8px}
   textarea{min-height:120px;resize:vertical}
   .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.5rem 0}
-  .btn{padding:.5rem .8rem;border-radius:8px;border:1px solid var(--br);background:#121722;color:var(--fg);cursor:pointer}
-  .btn.primary{background:var(--acc);border-color:var(--acc);color:white}
+  .btn{padding:.5rem .8rem;border-radius:8px;border:1px solid var(--br);background:#f8fafc;color:var(--fg);cursor:pointer}
+  .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
   .muted{color:var(--muted)}
-  pre{white-space:pre-wrap;word-break:break-word;background:#0e1116;border:1px solid var(--br);padding:1rem;border-radius:8px;min-height:180px}
-  footer{padding:.75rem 1rem;border-top:1px solid var(--br);color:var(--muted)}
-  .badge{font-size:12px;padding:.2rem .5rem;border:1px solid var(--br);border-radius:999px}
-  /* modal */
-  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}
-  .modal.show{display:flex}
-  .modal .panel{width:min(960px,95vw);max-height:90vh;overflow:auto;background:var(--card);border:1px solid var(--br);border-radius:12px;padding:1rem}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+  pre{white-space:pre-wrap;word-break:break-word;background:#ffffff;border:1px solid var(--br);padding:1rem;border-radius:8px;min-height:180px}
+  footer{padding:.75rem 1rem;border-top:1px solid var(--br);color:var(--muted);background:#fafafa}
+  .badge{font-size:12px;padding:.2rem .5rem;border:1px solid var(--br);border-radius:999px;background:#f8fafc}
+  .iconbtn{padding:.4rem .6rem;border:1px solid var(--br);border-radius:8px;background:#f8fafc;color:var(--fg);cursor:pointer}
 </style>
 </head>
 <body>
